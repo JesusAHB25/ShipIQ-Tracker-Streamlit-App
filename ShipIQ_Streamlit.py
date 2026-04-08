@@ -34,9 +34,18 @@ def load_rc_from_github():
     response = requests.get(API_URL, headers=HEADERS, params={"ref": GITHUB_BRANCH})
     if response.status_code == 200:
         content = base64.b64decode(response.json()["content"]).decode("utf-8")
-        df = pd.read_csv(io.StringIO(content))
-        df["PO # to Track"] = df["PO # to Track"].astype("Int64")
-        return df, response.json()["sha"]  # sha needed to update the file
+        sha = response.json()["sha"]
+        try:
+            df = pd.read_csv(io.StringIO(content))
+            if df.empty or "PO # to Track" not in df.columns:
+                raise ValueError("Empty or malformed file")
+            df["PO # to Track"] = df["PO # to Track"].astype("Int64")
+            return df, sha
+        except Exception:
+            return pd.DataFrame({
+                "PO # to Track": pd.array([], dtype="Int64"),
+                "What is the PO for?": pd.Series([], dtype="str")
+            }), sha  # keep sha so we can overwrite the file correctly
     return pd.DataFrame({
         "PO # to Track": pd.array([], dtype="Int64"),
         "What is the PO for?": pd.Series([], dtype="str")
