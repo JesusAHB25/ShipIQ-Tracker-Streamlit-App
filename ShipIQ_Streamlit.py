@@ -31,7 +31,7 @@ DEEPDIVE_COLS = ["Department", "Address", "Shipment ID", "Destination", "Status"
 EMPTY_RC      = pd.DataFrame({
     "PO # to Track":       pd.array([], dtype="Int64"),
     "What is the PO for?": pd.Series([], dtype="str"),
-    "Expiration Date":     pd.Series([], dtype="object")
+    "Expiration Date":     pd.Series([], dtype="str")
 })
 
 # =============================================================================
@@ -51,11 +51,11 @@ def load_rc_from_github():
         df["PO # to Track"] = df["PO # to Track"].astype("Int64")
         df["What is the PO for?"] = df["What is the PO for?"].astype(str).replace("nan", "")
         if "Expiration Date" not in df.columns:
-            df["Expiration Date"] = pd.NaT
+            df["Expiration Date"] = ""
         else:
             df["Expiration Date"] = pd.to_datetime(
                 df["Expiration Date"], format="%m/%d/%Y", errors="coerce"
-            ).dt.date
+            ).dt.strftime("%m/%d/%Y").fillna("")
         return df, sha
     except Exception:
         return EMPTY_RC.copy(), sha
@@ -201,10 +201,9 @@ with tab0:
                 "PO # to Track", format="%d", required=True
             ),
             "What is the PO for?": st.column_config.TextColumn("What is the PO for?"),
-            "Expiration Date": st.column_config.DateColumn(
+            "Expiration Date": st.column_config.TextColumn(
                 "Expiration Date",
-                help="When this date is reached, the PO will be automatically removed.",
-                format="MM/DD/YYYY"
+                help="Enter the expiration date in MM/DD/YYYY format. When reached, the PO will be automatically removed.",
             )
         }
     )
