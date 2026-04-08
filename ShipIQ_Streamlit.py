@@ -21,15 +21,18 @@ GH_HEADERS    = {"Authorization": f"token {GITHUB_TOKEN}", "Accept": "applicatio
 DATE_COLS     = ["Pickup Date", "In Yard Goal Date", "Final Routing Expected By", "Review By Date"]
 STATUS_COLS   = ["Picked Up", "Past Pickup", "Small Package", "Awaiting Pickup",
                  "Content Review Required", "Routing In Progress", "On Hold for routing", "Cancelled"]
-SUMMARY_ORDER = ["PO #", "What is the PO for?", "Vendor"] + STATUS_COLS + [
+SUMMARY_ORDER = ["PO #", "What is the PO for?", "Expiration Date"] + STATUS_COLS + [
                  "PO Status", "Earliest Pickup Date", "Latest Pickup Date",
                  "Earliest In Yard Goal Date", "Latest In Yard Goal Date",
                  "Earliest Final Routing Date", "Latest Final Routing Date"]
 DEEPDIVE_COLS = ["Department", "Address", "Shipment ID", "Destination", "Status",
                  "Pickup Date", "In Yard Goal Date", "Final Routing Expected By",
                  "Review By Date", "Last Updated By"]
-EMPTY_RC      = pd.DataFrame({"PO # to Track": pd.array([], dtype="Int64"),
-                               "What is the PO for?": pd.Series([], dtype="str")})
+EMPTY_RC      = pd.DataFrame({
+    "PO # to Track":      pd.array([], dtype="Int64"),
+    "What is the PO for?": pd.Series([], dtype="str"),
+    "Expiration Date":    pd.Series([], dtype="str")
+})
 
 # =============================================================================
 # GITHUB HELPERS
@@ -47,6 +50,10 @@ def load_rc_from_github():
             return EMPTY_RC.copy(), sha
         df["PO # to Track"] = df["PO # to Track"].astype("Int64")
         df["What is the PO for?"] = df["What is the PO for?"].astype(str).replace("nan", "")
+        if "Expiration Date" not in df.columns:
+            df["Expiration Date"] = ""
+        else:
+            df["Expiration Date"] = df["Expiration Date"].astype(str).replace("nan", "")
         return df, sha
     except Exception:
         return EMPTY_RC.copy(), sha
@@ -66,6 +73,21 @@ def save_rc_to_github(df, sha):
         st.error(f"GitHub save failed: {r.json().get('message', 'Unknown error')}")
         return None
     return r.json()["content"]["sha"]
+
+
+def purge_expired_pos(df, sha):
+    """
+    Remove rows where Expiration Date has passed today.
+    If any were removed, saves the cleaned df back to GitHub.
+    Returns (cleaned_df, new_sha).
+    """
+    today = pd.Timestamp.today().normalize()
+    mask = pd.to_datetime(df["Expiration Date"], format="%m/%d/%Y", errors="coerce")
+    expired = mask < today
+    if expired.any():
+        df = df[~expired].reset_index(drop=True)
+        sha = save_rc_to_github(df, sha)
+    return df, sha
 
 # =============================================================================
 # DATA PROCESSING
@@ -102,8 +124,9 @@ def get_datasets(rc_json):
 
     # --- Build Summary Skeleton ---
     summary = pd.DataFrame({
-        "PO #": rc["PO # to Track"].astype("Int64"),
-        "What is the PO for?": rc["What is the PO for?"]
+        "PO #":                rc["PO # to Track"].astype("Int64"),
+        "What is the PO for?": rc["What is the PO for?"],
+        "Expiration Date":     rc["Expiration Date"] if "Expiration Date" in rc.columns else ""
     })
 
     # --- Vendor Mapping ---
@@ -116,7 +139,7 @@ def get_datasets(rc_json):
     summary = summary.set_index("PO #")
     summary.update(status_pivot, join="left", overwrite=True)
     summary = summary.rename(columns={"Carrier Accepted, Awaiting Pickup": "Awaiting Pickup"})
-    for col in STATUS_COLS:                         # guarantee all status columns exist
+    for col in STATUS_COLS:
         if col not in summary.columns:
             summary[col] = 0.0
     summary = summary.fillna(0.0).reset_index()
@@ -146,10 +169,11 @@ def get_datasets(rc_json):
     return summary[SUMMARY_ORDER], paste_display
 
 # =============================================================================
-# SESSION STATE — load report controls once per session
+# SESSION STATE — load report controls once per session, purge expired POs
 # =============================================================================
 if "report_controls" not in st.session_state:
     df, sha = load_rc_from_github()
+    df, sha = purge_expired_pos(df, sha)   # auto-remove expired POs on load
     st.session_state.report_controls = df
     st.session_state.rc_sha = sha
 
@@ -164,15 +188,22 @@ tab0, tab1, tab2 = st.tabs(["⚙️ Report Controls", "📊 Summary Table", "�
 # --- Tab 0: Report Controls ---
 with tab0:
     st.subheader("Report Controls")
-    st.markdown("Add the PO numbers you want to track and an optional description for each.")
+    st.markdown("Add the PO numbers you want to track and an optional description and expiration date for each.")
 
     edited = st.data_editor(
         st.session_state.report_controls,
         num_rows="dynamic",
         use_container_width=True,
         column_config={
-            "PO # to Track": st.column_config.NumberColumn("PO # to Track", format="%d", required=True),
-            "What is the PO for?": st.column_config.TextColumn("What is the PO for?")
+            "PO # to Track": st.column_config.NumberColumn(
+                "PO # to Track", format="%d", required=True
+            ),
+            "What is the PO for?": st.column_config.TextColumn("What is the PO for?"),
+            "Expiration Date": st.column_config.DateColumn(
+                "Expiration Date",
+                help="When this date is reached, the PO will be automatically removed.",
+                format="MM/DD/YYYY"
+            )
         }
     )
 
@@ -180,6 +211,10 @@ with tab0:
     with col_apply:
         if st.button("✅ Apply & Refresh", type="primary", use_container_width=True):
             edited["PO # to Track"] = pd.array(edited["PO # to Track"].dropna().astype(int), dtype="Int64")
+            # Normalize Expiration Date to MM/DD/YYYY string for storage
+            edited["Expiration Date"] = pd.to_datetime(
+                edited["Expiration Date"], errors="coerce"
+            ).dt.strftime("%m/%d/%Y").fillna("")
             st.session_state.report_controls = edited
             st.session_state.rc_sha = save_rc_to_github(edited, st.session_state.rc_sha)
             st.cache_data.clear()
@@ -209,8 +244,11 @@ with tab2:
         selected_po = st.selectbox("Select a PO # to inspect:", options=summary["PO #"].unique())
 
         po_description = summary.loc[summary["PO #"] == selected_po, "What is the PO for?"].values[0]
-        if po_description:
-            st.caption(f"📋 **What is this PO for?** {po_description}")
+        st.dataframe(
+            pd.DataFrame({"What is this PO for?": [po_description if po_description else "No description provided"]}),
+            use_container_width=True,
+            hide_index=True
+        )
 
         deeper_dive = (
             all_data
