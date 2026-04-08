@@ -12,10 +12,25 @@ st.title("🚢 ShipIQ Tracker Automation")
 st.markdown("Processed datasets are displayed below. Update the data by pushing new CSVs to the **Downloads** folder on GitHub.")
 
 # ---------------------------------------------------------------------------
-# 2. DATA PROCESSING
+# 2. REPORT CONTROLS STATE
+# ---------------------------------------------------------------------------
+if "report_controls" not in st.session_state:
+    st.session_state.report_controls = pd.DataFrame({
+        "PO # to Track": pd.array([], dtype="Int64"),
+        "What is the PO for?": pd.Series([], dtype="str")
+    })
+
+# ---------------------------------------------------------------------------
+# 3. DATA PROCESSING
 # ---------------------------------------------------------------------------
 @st.cache_data
-def get_datasets():
+def get_datasets(report_controls_json):
+
+    report_controls = pd.read_json(io.StringIO(report_controls_json))
+    if report_controls.empty:
+        return None, None
+
+    report_controls["PO # to Track"] = report_controls["PO # to Track"].astype("Int64")
 
     # --- File Discovery ---
     path = Path("Downloads")
@@ -40,17 +55,7 @@ def get_datasets():
     paste = paste.rename(columns={"Purchase Order Number": "PO #", "Vendor Name": "Vendor"})
     paste["PO #"] = paste["PO #"].astype("Int64")
 
-    # --- Report Controls ---
-    try:
-        report_controls = pd.read_excel(
-            "report_controls.xlsx",
-            usecols=["PO # to Track", "What is the PO for?"]
-        )
-    except FileNotFoundError:
-        st.error("Error: 'report_controls.xlsx' not found in the repository root.")
-        return None, None
-
-    report_controls["PO # to Track"] = report_controls["PO # to Track"].astype("Int64")
+    # report_controls comes in via argument (from session_state)
 
     # --- Build Summary Structure ---
     summary = pd.DataFrame({
@@ -112,13 +117,12 @@ def get_datasets():
 summary, all_data = get_datasets()
 
 if summary is not None:
-    tab1, tab2 = st.tabs(["📊 Summary Table", "🔍 Deeper Dive"])
-
     with tab1:
         st.subheader("Dataset: Summary")
         st.dataframe(summary, use_container_width=True)
 
     with tab2:
+
         st.subheader("PO Specific Details")
 
         selected_po = st.selectbox(
