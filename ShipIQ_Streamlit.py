@@ -6,181 +6,162 @@ import io
 import base64
 import requests
 
-# ---------------------------------------------------------------------------
-# 1. PAGE SETUP
-# ---------------------------------------------------------------------------
+# =============================================================================
+# CONFIGURATION
+# =============================================================================
 st.set_page_config(page_title="ShipIQ Tracker Hub", layout="wide")
-st.title("🚢 ShipIQ Tracker Automation")
-st.markdown("Processed datasets are displayed below. Update the data by pushing new CSVs to the **Downloads** folder on GitHub.")
 
-# ---------------------------------------------------------------------------
-# 2. GITHUB CONFIG — set these in Streamlit Cloud > Secrets
-# ---------------------------------------------------------------------------
 GITHUB_TOKEN  = st.secrets["GITHUB_TOKEN"]
-GITHUB_REPO   = st.secrets["GITHUB_REPO"]   # e.g. "username/shipiq-tracker-streamlit-app"
-RC_FILE_PATH  = "report_controls_data.csv"   # path inside the repo
+GITHUB_REPO   = st.secrets["GITHUB_REPO"]
+RC_FILE_PATH  = "report_controls_data.csv"
 GITHUB_BRANCH = "main"
+API_URL       = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{RC_FILE_PATH}"
+GH_HEADERS    = {"Authorization": f"token {GITHUB_TOKEN}", "Accept": "application/vnd.github.v3+json"}
 
-HEADERS = {
-    "Authorization": f"token {GITHUB_TOKEN}",
-    "Accept": "application/vnd.github.v3+json"
-}
-API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{RC_FILE_PATH}"
+DATE_COLS     = ["Pickup Date", "In Yard Goal Date", "Final Routing Expected By", "Review By Date"]
+STATUS_COLS   = ["Picked Up", "Past Pickup", "Small Package", "Awaiting Pickup",
+                 "Content Review Required", "Routing In Progress", "On Hold for routing", "Cancelled"]
+SUMMARY_ORDER = ["PO #", "What is the PO for?", "Vendor"] + STATUS_COLS + [
+                 "PO Status", "Earliest Pickup Date", "Latest Pickup Date",
+                 "Earliest In Yard Goal Date", "Latest In Yard Goal Date",
+                 "Earliest Final Routing Date", "Latest Final Routing Date"]
+DEEPDIVE_COLS = ["Department", "Address", "Shipment ID", "Destination", "Status",
+                 "Pickup Date", "In Yard Goal Date", "Final Routing Expected By",
+                 "Review By Date", "Last Updated By"]
+EMPTY_RC      = pd.DataFrame({"PO # to Track": pd.array([], dtype="Int64"),
+                               "What is the PO for?": pd.Series([], dtype="str")})
 
-# ---------------------------------------------------------------------------
-# 3. GITHUB READ / WRITE HELPERS
-# ---------------------------------------------------------------------------
+# =============================================================================
+# GITHUB HELPERS
+# =============================================================================
 def load_rc_from_github():
-    response = requests.get(API_URL, headers=HEADERS, params={"ref": GITHUB_BRANCH})
-    empty = pd.DataFrame({
-        "PO # to Track": pd.array([], dtype="Int64"),
-        "What is the PO for?": pd.Series([], dtype="str")
-    })
-    if response.status_code == 200:
-        sha = response.json()["sha"]
-        try:
-            content = base64.b64decode(response.json()["content"]).decode("utf-8")
-            df = pd.read_csv(io.StringIO(content))
-            if df.empty or "PO # to Track" not in df.columns:
-                return empty, sha
-            df["PO # to Track"] = df["PO # to Track"].astype("Int64")
-            df["What is the PO for?"] = df["What is the PO for?"].astype("str").replace("nan", "")
-            return df, sha
-        except Exception:
-            return empty, sha
-    return empty, None
+    """Fetch report_controls_data.csv from GitHub. Returns (DataFrame, sha)."""
+    r = requests.get(API_URL, headers=GH_HEADERS, params={"ref": GITHUB_BRANCH})
+    if r.status_code != 200:
+        return EMPTY_RC.copy(), None
+    sha = r.json()["sha"]
+    try:
+        content = base64.b64decode(r.json()["content"]).decode("utf-8")
+        df = pd.read_csv(io.StringIO(content))
+        if df.empty or "PO # to Track" not in df.columns:
+            return EMPTY_RC.copy(), sha
+        df["PO # to Track"] = df["PO # to Track"].astype("Int64")
+        df["What is the PO for?"] = df["What is the PO for?"].astype(str).replace("nan", "")
+        return df, sha
+    except Exception:
+        return EMPTY_RC.copy(), sha
+
 
 def save_rc_to_github(df, sha):
-    csv_content = df.to_csv(index=False)
-    encoded = base64.b64encode(csv_content.encode("utf-8")).decode("utf-8")
+    """Push updated report_controls_data.csv to GitHub. Returns new sha or None on failure."""
     payload = {
         "message": "chore: update report_controls_data.csv",
-        "content": encoded,
+        "content": base64.b64encode(df.to_csv(index=False).encode()).decode(),
         "branch": GITHUB_BRANCH,
     }
     if sha:
-        payload["sha"] = sha  # required when updating an existing file
-    response = requests.put(API_URL, headers=HEADERS, json=payload)
-    if response.status_code not in (200, 201):
-        st.error(f"Failed to save to GitHub: {response.json().get('message', 'Unknown error')}")
+        payload["sha"] = sha
+    r = requests.put(API_URL, headers=GH_HEADERS, json=payload)
+    if r.status_code not in (200, 201):
+        st.error(f"GitHub save failed: {r.json().get('message', 'Unknown error')}")
         return None
-    return response.json()["content"]["sha"]  # return new sha
+    return r.json()["content"]["sha"]
 
-# ---------------------------------------------------------------------------
-# 4. REPORT CONTROLS STATE
-# ---------------------------------------------------------------------------
-if "report_controls" not in st.session_state:
-    df, sha = load_rc_from_github()
-    st.session_state.report_controls = df
-    st.session_state.rc_sha = sha
-
-# ---------------------------------------------------------------------------
-# 3. DATA PROCESSING
-# ---------------------------------------------------------------------------
+# =============================================================================
+# DATA PROCESSING
+# =============================================================================
 @st.cache_data
-def get_datasets(report_controls_json):
-
-    report_controls = pd.read_json(io.StringIO(report_controls_json))
-    if report_controls.empty:
+def get_datasets(rc_json):
+    """
+    Core ETL function. Takes report controls as JSON string (for cache hashing),
+    reads CSVs from /Downloads, and returns (summary, paste).
+    """
+    # --- Report Controls ---
+    rc = pd.read_json(io.StringIO(rc_json))
+    if rc.empty:
         return None, None
+    rc["PO # to Track"] = rc["PO # to Track"].astype("Int64")
 
-    report_controls["PO # to Track"] = report_controls["PO # to Track"].astype("Int64")
-
-    # --- File Discovery ---
-    path = Path("Downloads")
-    files = sorted(path.glob("*.csv"))
+    # --- Ingest CSVs ---
+    files = sorted(Path("Downloads").glob("*.csv"))
     if not files:
         return None, None
-
-    # --- Data Ingestion & Consolidation ---
     paste = pd.concat([pd.read_csv(f) for f in files], ignore_index=True)
 
-    # --- Date Formatting ---
-    date_columns = ["Pickup Date", "In Yard Goal Date", "Final Routing Expected By", "Review By Date"]
-    for col in date_columns:
+    # --- Parse Dates ---
+    for col in DATE_COLS:
         paste[col] = pd.to_datetime(paste[col], errors="coerce")
 
     # --- Days Past Pickup ---
     days_diff = (pd.Timestamp.today() - paste["Pickup Date"]).dt.days
     paste["Days Past Pickup"] = np.where(paste["Status"] == "Past Pickup", days_diff, np.nan)
 
-    # --- Standardize Column Names ---
+    # --- Rename Columns ---
     paste = paste.rename(columns={"Purchase Order Number": "PO #", "Vendor Name": "Vendor"})
     paste["PO #"] = paste["PO #"].astype("Int64")
 
-    # --- Build Summary Structure ---
+    # --- Build Summary Skeleton ---
     summary = pd.DataFrame({
-        "PO #": report_controls["PO # to Track"].astype("Int64"),
-        "What is the PO for?": report_controls["What is the PO for?"]
+        "PO #": rc["PO # to Track"].astype("Int64"),
+        "What is the PO for?": rc["What is the PO for?"]
     })
 
     # --- Vendor Mapping ---
-    povendor = (
-        paste[["PO #", "Vendor"]]
-        .drop_duplicates("PO #")
-        .set_index("PO #")["Vendor"]
-    )
-    summary["Vendor"] = summary["PO #"].map(povendor).fillna("NA")
+    summary["Vendor"] = summary["PO #"].map(
+        paste[["PO #", "Vendor"]].drop_duplicates("PO #").set_index("PO #")["Vendor"]
+    ).fillna("NA")
 
-    # --- Status Counts (pivot-style) ---
-    status_reference = (
-        paste.groupby(["PO #", "Status"])["Status"]
-        .count()
-        .unstack(fill_value=0)
-    )
+    # --- Status Counts ---
+    status_pivot = paste.groupby(["PO #", "Status"])["Status"].count().unstack(fill_value=0)
     summary = summary.set_index("PO #")
-    summary.update(status_reference, join="left", overwrite=True)
+    summary.update(status_pivot, join="left", overwrite=True)
     summary = summary.rename(columns={"Carrier Accepted, Awaiting Pickup": "Awaiting Pickup"})
-
-    # Ensure all expected status columns are present even if not in the CSVs
-    expected_status_cols = [
-        "Picked Up", "Past Pickup", "Small Package", "Awaiting Pickup",
-        "Content Review Required", "Routing In Progress", "On Hold for routing", "Cancelled"
-    ]
-    for col in expected_status_cols:
+    for col in STATUS_COLS:                         # guarantee all status columns exist
         if col not in summary.columns:
             summary[col] = 0.0
-
     summary = summary.fillna(0.0).reset_index()
 
     # --- PO Status ---
-    cancelled_pos = paste[paste["Status"] == "Cancelled"]["PO #"].unique()
-    summary["PO Status"] = np.where(summary["PO #"].isin(cancelled_pos), "Cancelled", "Approved")
+    cancelled = paste[paste["Status"] == "Cancelled"]["PO #"].unique()
+    summary["PO Status"] = np.where(summary["PO #"].isin(cancelled), "Cancelled", "Approved")
 
     # --- Aggregated Dates ---
-    date_agg_map = {
-        "Earliest Pickup Date":         ("Pickup Date",               "min"),
-        "Latest Pickup Date":           ("Pickup Date",               "max"),
-        "Earliest In Yard Goal Date":   ("In Yard Goal Date",         "min"),
-        "Latest In Yard Goal Date":     ("In Yard Goal Date",         "max"),
-        "Earliest Final Routing Date":  ("Final Routing Expected By", "min"),
-        "Latest Final Routing Date":    ("Final Routing Expected By", "max"),
+    date_aggs = {
+        "Earliest Pickup Date":        ("Pickup Date",               "min"),
+        "Latest Pickup Date":          ("Pickup Date",               "max"),
+        "Earliest In Yard Goal Date":  ("In Yard Goal Date",         "min"),
+        "Latest In Yard Goal Date":    ("In Yard Goal Date",         "max"),
+        "Earliest Final Routing Date": ("Final Routing Expected By", "min"),
+        "Latest Final Routing Date":   ("Final Routing Expected By", "max"),
     }
-
-    for summary_col, (source_col, agg_fn) in date_agg_map.items():
-        agg = getattr(paste.groupby("PO #")[source_col], agg_fn)()
-        summary[summary_col] = summary["PO #"].map(agg)
-        summary[summary_col] = summary[summary_col].apply(
+    for out_col, (src_col, fn) in date_aggs.items():
+        agg = getattr(paste.groupby("PO #")[src_col], fn)()
+        summary[out_col] = summary["PO #"].map(agg).apply(
             lambda x: "" if pd.isna(x) or x == 0 else pd.Timestamp(x).strftime("%m/%d/%Y")
         )
 
-    return summary[[
-        "PO #", "What is the PO for?", "Vendor",
-        "Picked Up", "Past Pickup", "Small Package", "Awaiting Pickup",
-        "Content Review Required", "Routing In Progress", "On Hold for routing", "Cancelled",
-        "PO Status", "Earliest Pickup Date", "Latest Pickup Date",
-        "Earliest In Yard Goal Date", "Latest In Yard Goal Date",
-        "Earliest Final Routing Date", "Latest Final Routing Date"
-    ]], paste.assign(**{
-        col: paste[col].dt.strftime("%m/%d/%Y") for col in date_columns
-    })
+    # --- Format Dates in paste for display ---
+    paste_display = paste.assign(**{col: paste[col].dt.strftime("%m/%d/%Y") for col in DATE_COLS})
 
+    return summary[SUMMARY_ORDER], paste_display
 
-# ---------------------------------------------------------------------------
-# 4. RENDER
-# ---------------------------------------------------------------------------
+# =============================================================================
+# SESSION STATE — load report controls once per session
+# =============================================================================
+if "report_controls" not in st.session_state:
+    df, sha = load_rc_from_github()
+    st.session_state.report_controls = df
+    st.session_state.rc_sha = sha
+
+# =============================================================================
+# UI
+# =============================================================================
+st.title("🚢 ShipIQ Tracker Automation")
+st.markdown("Processed datasets are displayed below. Update the data by pushing new CSVs to the **Downloads** folder on GitHub.")
+
 tab0, tab1, tab2 = st.tabs(["⚙️ Report Controls", "📊 Summary Table", "🔍 Deeper Dive"])
 
+# --- Tab 0: Report Controls ---
 with tab0:
     st.subheader("Report Controls")
     st.markdown("Add the PO numbers you want to track and an optional description for each.")
@@ -190,85 +171,59 @@ with tab0:
         num_rows="dynamic",
         use_container_width=True,
         column_config={
-            "PO # to Track": st.column_config.NumberColumn(
-                "PO # to Track",
-                help="Enter the full PO number",
-                format="%d",
-                required=True
-            ),
-            "What is the PO for?": st.column_config.TextColumn(
-                "What is the PO for?",
-                help="Short description of the PO"
-            )
+            "PO # to Track": st.column_config.NumberColumn("PO # to Track", format="%d", required=True),
+            "What is the PO for?": st.column_config.TextColumn("What is the PO for?")
         }
     )
 
-    col_apply, col_reset = st.columns([1, 1])
-
+    col_apply, col_reset = st.columns(2)
     with col_apply:
         if st.button("✅ Apply & Refresh", type="primary", use_container_width=True):
             edited["PO # to Track"] = pd.array(edited["PO # to Track"].dropna().astype(int), dtype="Int64")
             st.session_state.report_controls = edited
-            new_sha = save_rc_to_github(edited, st.session_state.rc_sha)
-            if new_sha:
-                st.session_state.rc_sha = new_sha
+            st.session_state.rc_sha = save_rc_to_github(edited, st.session_state.rc_sha)
             st.cache_data.clear()
             st.rerun()
-
     with col_reset:
         if st.button("🗑️ Reset", type="secondary", use_container_width=True):
-            empty = pd.DataFrame({
-                "PO # to Track": pd.array([], dtype="Int64"),
-                "What is the PO for?": pd.Series([], dtype="str")
-            })
-            st.session_state.report_controls = empty
-            new_sha = save_rc_to_github(empty, st.session_state.rc_sha)
-            if new_sha:
-                st.session_state.rc_sha = new_sha
+            st.session_state.report_controls = EMPTY_RC.copy()
+            st.session_state.rc_sha = save_rc_to_github(EMPTY_RC.copy(), st.session_state.rc_sha)
             st.cache_data.clear()
             st.rerun()
 
+# --- Load Data ---
 summary, all_data = get_datasets(st.session_state.report_controls.to_json())
 
-if summary is not None:
-    with tab1:
+# --- Tab 1: Summary ---
+with tab1:
+    if summary is not None:
         st.subheader("Dataset: Summary")
         st.dataframe(summary, use_container_width=True)
+    else:
+        st.info("No data to display. Add PO numbers in Report Controls and ensure CSVs are in the Downloads folder.")
 
-    with tab2:
+# --- Tab 2: Deeper Dive ---
+with tab2:
+    if all_data is not None:
         st.subheader("PO Specific Details")
+        selected_po = st.selectbox("Select a PO # to inspect:", options=summary["PO #"].unique())
 
-        selected_po = st.selectbox(
-            "Select a PO # to inspect:",
-            options=summary["PO #"].unique()
-        )
+        po_description = summary.loc[summary["PO #"] == selected_po, "What is the PO for?"].values[0]
+        if po_description:
+            st.caption(f"📋 **What is this PO for?** {po_description}")
 
-        dd_report_controls = pd.DataFrame({
-            "PO #": pd.array([selected_po], dtype="Int64"),
-            "Vendor": [None]
-        })
-
-        dd_reference = (
+        deeper_dive = (
             all_data
-            .merge(dd_report_controls[["PO #"]], on="PO #", how="right")
+            .merge(pd.DataFrame({"PO #": pd.array([selected_po], dtype="Int64")}), on="PO #", how="right")
             .rename(columns={"Vendor_x": "Vendor"})
             .drop(columns=["Vendor_y"], errors="ignore")
             .set_index("PO #")
+            [DEEPDIVE_COLS]
         )
 
-        deeper_dive = dd_reference[[
-            "Department", "Address", "Shipment ID", "Destination", "Status",
-            "Pickup Date", "In Yard Goal Date", "Final Routing Expected By",
-            "Review By Date", "Last Updated By"
-        ]]
-
         if deeper_dive.empty:
-            st.warning(f"No records found for PO # {selected_po}. Verify this PO exists in the uploaded CSVs.")
+            st.warning(f"No records found for PO # {selected_po}.")
         else:
             st.dataframe(deeper_dive, use_container_width=True)
-
-else:
-    with tab1:
-        st.info("No data to display. Please add PO numbers in the Report Controls tab and ensure CSVs are in the Downloads folder.")
-    with tab2:
-        st.info("No data to display. Please add PO numbers in the Report Controls tab and ensure CSVs are in the Downloads folder.")
+    else:
+        st.info("No data to display. Add PO numbers in Report Controls and ensure CSVs are in the Downloads folder.")
