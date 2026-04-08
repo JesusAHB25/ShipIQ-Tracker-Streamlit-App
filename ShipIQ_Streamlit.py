@@ -164,6 +164,13 @@ with tab0:
     st.subheader("Report Controls")
     st.markdown("Add the PO numbers you want to track and an optional description for each.")
 
+    # Debug info — remove once confirmed working
+    with st.expander("🔧 Debug Info"):
+        st.write("SHA:", st.session_state.get("rc_sha"))
+        test = requests.get(API_URL, headers=HEADERS, params={"ref": GITHUB_BRANCH})
+        st.write("GitHub API status:", test.status_code)
+        st.write("GitHub API response:", test.json())
+
     edited = st.data_editor(
         st.session_state.report_controls,
         num_rows="dynamic",
