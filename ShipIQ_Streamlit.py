@@ -66,16 +66,17 @@ def get_datasets():
     )
     summary["Vendor"] = summary["PO #"].map(povendor).fillna("NA")
 
+    # --- PO Status (extract before unstack overwrites it) ---
+    # "PO Status" is its own column in the raw data, not a value inside "Status"
+    po_status_map = paste.drop_duplicates("PO #").set_index("PO #")["PO Status"]
+
     # --- Status Counts (pivot-style) ---
     status_reference = (
         paste.groupby(["PO #", "Status"])["Status"]
         .count()
         .unstack(fill_value=0)
     )
-    summary = (
-        summary.set_index("PO #")
-        .pipe(lambda df: df.reindex(df.index))  # preserve order
-    )
+    summary = summary.set_index("PO #")
     summary.update(status_reference, join="left", overwrite=True)
     summary = (
         summary
@@ -84,8 +85,8 @@ def get_datasets():
         .reset_index()
     )
 
-    # --- PO Status ---
-    summary["PO Status"] = np.where(summary["PO Status"] != "Cancelled", "Approved", "Cancelled")
+    # --- PO Status (map back from raw data) ---
+    summary["PO Status"] = summary["PO #"].map(po_status_map).fillna("Unknown")
 
     # --- Aggregated Dates (consolidated loop, with bug fix on Latest Final Routing) ---
     date_agg_map = {
