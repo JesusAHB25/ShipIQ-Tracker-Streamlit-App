@@ -47,15 +47,12 @@ def get_datasets(report_controls_json):
         paste[col] = pd.to_datetime(paste[col], errors="coerce")
 
     # --- Days Past Pickup ---
-    # Use np.nan (float) instead of the string "nan"
     days_diff = (pd.Timestamp.today() - paste["Pickup Date"]).dt.days
     paste["Days Past Pickup"] = np.where(paste["Status"] == "Past Pickup", days_diff, np.nan)
 
     # --- Standardize Column Names ---
     paste = paste.rename(columns={"Purchase Order Number": "PO #", "Vendor Name": "Vendor"})
     paste["PO #"] = paste["PO #"].astype("Int64")
-
-    # report_controls comes in via argument (from session_state)
 
     # --- Build Summary Structure ---
     summary = pd.DataFrame({
@@ -87,18 +84,17 @@ def get_datasets(report_controls_json):
     )
 
     # --- PO Status ---
-    # "Cancelled" is one of the values inside "Status"; anything else is "Approved"
     cancelled_pos = paste[paste["Status"] == "Cancelled"]["PO #"].unique()
     summary["PO Status"] = np.where(summary["PO #"].isin(cancelled_pos), "Cancelled", "Approved")
 
-    # --- Aggregated Dates (consolidated loop, with bug fix on Latest Final Routing) ---
+    # --- Aggregated Dates ---
     date_agg_map = {
-        "Earliest Pickup Date":          ("Pickup Date",                "min"),
-        "Latest Pickup Date":            ("Pickup Date",                "max"),
-        "Earliest In Yard Goal Date":    ("In Yard Goal Date",          "min"),
-        "Latest In Yard Goal Date":      ("In Yard Goal Date",          "max"),
-        "Earliest Final Routing Date":   ("Final Routing Expected By",  "min"),
-        "Latest Final Routing Date":     ("Final Routing Expected By",  "max"),  # BUG FIX: was mapping min_values_pdate
+        "Earliest Pickup Date":         ("Pickup Date",               "min"),
+        "Latest Pickup Date":           ("Pickup Date",               "max"),
+        "Earliest In Yard Goal Date":   ("In Yard Goal Date",         "min"),
+        "Latest In Yard Goal Date":     ("In Yard Goal Date",         "max"),
+        "Earliest Final Routing Date":  ("Final Routing Expected By", "min"),
+        "Latest Final Routing Date":    ("Final Routing Expected By", "max"),
     }
 
     for summary_col, (source_col, agg_fn) in date_agg_map.items():
@@ -112,9 +108,39 @@ def get_datasets(report_controls_json):
 
 
 # ---------------------------------------------------------------------------
-# 3. RENDER
+# 4. RENDER
 # ---------------------------------------------------------------------------
-summary, all_data = get_datasets()
+tab0, tab1, tab2 = st.tabs(["⚙️ Report Controls", "📊 Summary Table", "🔍 Deeper Dive"])
+
+with tab0:
+    st.subheader("Report Controls")
+    st.markdown("Add the PO numbers you want to track and an optional description for each.")
+
+    edited = st.data_editor(
+        st.session_state.report_controls,
+        num_rows="dynamic",
+        use_container_width=True,
+        column_config={
+            "PO # to Track": st.column_config.NumberColumn(
+                "PO # to Track",
+                help="Enter the full PO number",
+                format="%d",
+                required=True
+            ),
+            "What is the PO for?": st.column_config.TextColumn(
+                "What is the PO for?",
+                help="Short description of the PO"
+            )
+        }
+    )
+
+    if st.button("✅ Apply & Refresh", type="primary"):
+        edited["PO # to Track"] = pd.array(edited["PO # to Track"].dropna().astype(int), dtype="Int64")
+        st.session_state.report_controls = edited
+        st.cache_data.clear()
+        st.rerun()
+
+summary, all_data = get_datasets(st.session_state.report_controls.to_json())
 
 if summary is not None:
     with tab1:
@@ -122,7 +148,6 @@ if summary is not None:
         st.dataframe(summary, use_container_width=True)
 
     with tab2:
-
         st.subheader("PO Specific Details")
 
         selected_po = st.selectbox(
@@ -130,7 +155,6 @@ if summary is not None:
             options=summary["PO #"].unique()
         )
 
-        # Deeper Dive — mirrors your original merge logic, driven by the selector
         dd_report_controls = pd.DataFrame({
             "PO #": pd.array([selected_po], dtype="Int64"),
             "Vendor": [None]
@@ -156,4 +180,7 @@ if summary is not None:
             st.dataframe(deeper_dive, use_container_width=True)
 
 else:
-    st.info("Awaiting data. Please ensure the 'Downloads' folder contains CSVs and 'report_controls.xlsx' is in the repository root.")
+    with tab1:
+        st.info("No data to display. Please add PO numbers in the Report Controls tab and ensure CSVs are in the Downloads folder.")
+    with tab2:
+        st.info("No data to display. Please add PO numbers in the Report Controls tab and ensure CSVs are in the Downloads folder.")
