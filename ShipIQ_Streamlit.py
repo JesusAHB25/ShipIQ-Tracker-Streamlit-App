@@ -29,9 +29,9 @@ DEEPDIVE_COLS = ["Department", "Address", "Shipment ID", "Destination", "Status"
                  "Pickup Date", "In Yard Goal Date", "Final Routing Expected By",
                  "Review By Date", "Last Updated By"]
 EMPTY_RC      = pd.DataFrame({
-    "PO # to Track":      pd.array([], dtype="Int64"),
+    "PO # to Track":       pd.array([], dtype="Int64"),
     "What is the PO for?": pd.Series([], dtype="str"),
-    "Expiration Date":    pd.Series([], dtype="str")
+    "Expiration Date":     pd.Series([], dtype="object")
 })
 
 # =============================================================================
@@ -51,9 +51,11 @@ def load_rc_from_github():
         df["PO # to Track"] = df["PO # to Track"].astype("Int64")
         df["What is the PO for?"] = df["What is the PO for?"].astype(str).replace("nan", "")
         if "Expiration Date" not in df.columns:
-            df["Expiration Date"] = ""
+            df["Expiration Date"] = pd.NaT
         else:
-            df["Expiration Date"] = df["Expiration Date"].astype(str).replace("nan", "")
+            df["Expiration Date"] = pd.to_datetime(
+                df["Expiration Date"], format="%m/%d/%Y", errors="coerce"
+            ).dt.date
         return df, sha
     except Exception:
         return EMPTY_RC.copy(), sha
