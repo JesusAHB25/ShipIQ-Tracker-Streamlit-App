@@ -32,24 +32,23 @@ API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{RC_FILE_PATH}"
 # ---------------------------------------------------------------------------
 def load_rc_from_github():
     response = requests.get(API_URL, headers=HEADERS, params={"ref": GITHUB_BRANCH})
-    if response.status_code == 200:
-        content = base64.b64decode(response.json()["content"]).decode("utf-8")
-        sha = response.json()["sha"]
-        try:
-            df = pd.read_csv(io.StringIO(content))
-            if df.empty or "PO # to Track" not in df.columns:
-                raise ValueError("Empty or malformed file")
-            df["PO # to Track"] = df["PO # to Track"].astype("Int64")
-            return df, sha
-        except Exception:
-            return pd.DataFrame({
-                "PO # to Track": pd.array([], dtype="Int64"),
-                "What is the PO for?": pd.Series([], dtype="str")
-            }), sha  # keep sha so we can overwrite the file correctly
-    return pd.DataFrame({
+    empty = pd.DataFrame({
         "PO # to Track": pd.array([], dtype="Int64"),
         "What is the PO for?": pd.Series([], dtype="str")
-    }), None
+    })
+    if response.status_code == 200:
+        sha = response.json()["sha"]
+        try:
+            content = base64.b64decode(response.json()["content"]).decode("utf-8")
+            df = pd.read_csv(io.StringIO(content))
+            if df.empty or "PO # to Track" not in df.columns:
+                return empty, sha
+            df["PO # to Track"] = df["PO # to Track"].astype("Int64")
+            df["What is the PO for?"] = df["What is the PO for?"].astype("str").replace("nan", "")
+            return df, sha
+        except Exception:
+            return empty, sha
+    return empty, None
 
 def save_rc_to_github(df, sha):
     csv_content = df.to_csv(index=False)
@@ -172,13 +171,6 @@ tab0, tab1, tab2 = st.tabs(["⚙️ Report Controls", "📊 Summary Table", "�
 with tab0:
     st.subheader("Report Controls")
     st.markdown("Add the PO numbers you want to track and an optional description for each.")
-
-    # Debug info — remove once confirmed working
-    with st.expander("🔧 Debug Info"):
-        st.write("SHA:", st.session_state.get("rc_sha"))
-        test = requests.get(API_URL, headers=HEADERS, params={"ref": GITHUB_BRANCH})
-        st.write("GitHub API status:", test.status_code)
-        st.write("GitHub API response:", test.json())
 
     edited = st.data_editor(
         st.session_state.report_controls,
