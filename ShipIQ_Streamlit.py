@@ -130,12 +130,26 @@ def get_datasets(report_controls_json):
     )
     summary = summary.set_index("PO #")
     summary.update(status_reference, join="left", overwrite=True)
-    summary = (
-        summary
-        .rename(columns={"Carrier Accepted, Awaiting Pickup": "Awaiting Pickup"})
-        .fillna(0.0)
-        .reset_index()
-    )
+    summary = summary.rename(columns={"Carrier Accepted, Awaiting Pickup": "Awaiting Pickup"})
+
+    # Ensure all expected status columns are present even if not in the CSVs
+    expected_status_cols = [
+        "Picked Up", "Past Pickup", "Small Package", "Awaiting Pickup",
+        "Content Review Required", "Routing In Progress", "On Hold for routing", "Cancelled"
+    ]
+    for col in expected_status_cols:
+        if col not in summary.columns:
+            summary[col] = 0.0
+
+    # Reorder columns explicitly to match the intended structure
+    summary = summary[[
+        "What is the PO for?", "Vendor",
+        "Picked Up", "Past Pickup", "Small Package", "Awaiting Pickup",
+        "Content Review Required", "Routing In Progress", "On Hold for routing", "Cancelled",
+        "PO Status", "Earliest Pickup Date", "Latest Pickup Date",
+        "Earliest In Yard Goal Date", "Latest In Yard Goal Date",
+        "Earliest Final Routing Date", "Latest Final Routing Date"
+    ]].fillna(0.0).reset_index()
 
     # --- PO Status ---
     cancelled_pos = paste[paste["Status"] == "Cancelled"]["PO #"].unique()
