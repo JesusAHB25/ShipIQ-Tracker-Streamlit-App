@@ -3,6 +3,8 @@ import pandas as pd
 import numpy as np
 from pathlib import Path
 import io
+import base64
+import requests
 
 # ---------------------------------------------------------------------------
 # 1. PAGE SETUP
@@ -12,13 +14,57 @@ st.title("🚢 ShipIQ Tracker Automation")
 st.markdown("Processed datasets are displayed below. Update the data by pushing new CSVs to the **Downloads** folder on GitHub.")
 
 # ---------------------------------------------------------------------------
-# 2. REPORT CONTROLS STATE
+# 2. GITHUB CONFIG — set these in Streamlit Cloud > Secrets
 # ---------------------------------------------------------------------------
-if "report_controls" not in st.session_state:
-    st.session_state.report_controls = pd.DataFrame({
+GITHUB_TOKEN  = st.secrets["GITHUB_TOKEN"]
+GITHUB_REPO   = st.secrets["GITHUB_REPO"]   # e.g. "username/shipiq-tracker-streamlit-app"
+RC_FILE_PATH  = "report_controls_data.csv"   # path inside the repo
+GITHUB_BRANCH = "main"
+
+HEADERS = {
+    "Authorization": f"token {GITHUB_TOKEN}",
+    "Accept": "application/vnd.github.v3+json"
+}
+API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{RC_FILE_PATH}"
+
+# ---------------------------------------------------------------------------
+# 3. GITHUB READ / WRITE HELPERS
+# ---------------------------------------------------------------------------
+def load_rc_from_github():
+    response = requests.get(API_URL, headers=HEADERS, params={"ref": GITHUB_BRANCH})
+    if response.status_code == 200:
+        content = base64.b64decode(response.json()["content"]).decode("utf-8")
+        df = pd.read_csv(io.StringIO(content))
+        df["PO # to Track"] = df["PO # to Track"].astype("Int64")
+        return df, response.json()["sha"]  # sha needed to update the file
+    return pd.DataFrame({
         "PO # to Track": pd.array([], dtype="Int64"),
         "What is the PO for?": pd.Series([], dtype="str")
-    })
+    }), None
+
+def save_rc_to_github(df, sha):
+    csv_content = df.to_csv(index=False)
+    encoded = base64.b64encode(csv_content.encode("utf-8")).decode("utf-8")
+    payload = {
+        "message": "chore: update report_controls_data.csv",
+        "content": encoded,
+        "branch": GITHUB_BRANCH,
+    }
+    if sha:
+        payload["sha"] = sha  # required when updating an existing file
+    response = requests.put(API_URL, headers=HEADERS, json=payload)
+    if response.status_code not in (200, 201):
+        st.error(f"Failed to save to GitHub: {response.json().get('message', 'Unknown error')}")
+        return None
+    return response.json()["content"]["sha"]  # return new sha
+
+# ---------------------------------------------------------------------------
+# 4. REPORT CONTROLS STATE
+# ---------------------------------------------------------------------------
+if "report_controls" not in st.session_state:
+    df, sha = load_rc_from_github()
+    st.session_state.report_controls = df
+    st.session_state.rc_sha = sha
 
 # ---------------------------------------------------------------------------
 # 3. DATA PROCESSING
@@ -101,10 +147,12 @@ def get_datasets(report_controls_json):
         agg = getattr(paste.groupby("PO #")[source_col], agg_fn)()
         summary[summary_col] = summary["PO #"].map(agg)
         summary[summary_col] = summary[summary_col].apply(
-            lambda x: "" if pd.isna(x) or x == 0 else x
+            lambda x: "" if pd.isna(x) or x == 0 else pd.Timestamp(x).strftime("%m/%d/%Y")
         )
 
-    return summary, paste
+    return summary, paste.assign(**{
+        col: paste[col].dt.strftime("%m/%d/%Y") for col in date_columns
+    })
 
 
 # ---------------------------------------------------------------------------
@@ -134,11 +182,30 @@ with tab0:
         }
     )
 
-    if st.button("✅ Apply & Refresh", type="primary"):
-        edited["PO # to Track"] = pd.array(edited["PO # to Track"].dropna().astype(int), dtype="Int64")
-        st.session_state.report_controls = edited
-        st.cache_data.clear()
-        st.rerun()
+    col_apply, col_reset = st.columns([1, 1])
+
+    with col_apply:
+        if st.button("✅ Apply & Refresh", type="primary", use_container_width=True):
+            edited["PO # to Track"] = pd.array(edited["PO # to Track"].dropna().astype(int), dtype="Int64")
+            st.session_state.report_controls = edited
+            new_sha = save_rc_to_github(edited, st.session_state.rc_sha)
+            if new_sha:
+                st.session_state.rc_sha = new_sha
+            st.cache_data.clear()
+            st.rerun()
+
+    with col_reset:
+        if st.button("🗑️ Reset", type="secondary", use_container_width=True):
+            empty = pd.DataFrame({
+                "PO # to Track": pd.array([], dtype="Int64"),
+                "What is the PO for?": pd.Series([], dtype="str")
+            })
+            st.session_state.report_controls = empty
+            new_sha = save_rc_to_github(empty, st.session_state.rc_sha)
+            if new_sha:
+                st.session_state.rc_sha = new_sha
+            st.cache_data.clear()
+            st.rerun()
 
 summary, all_data = get_datasets(st.session_state.report_controls.to_json())
 
