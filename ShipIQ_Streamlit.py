@@ -285,7 +285,17 @@ summary, all_data = get_datasets(st.session_state.report_controls.to_json())
 with tab1:
     if summary is not None:
         st.subheader("Dataset: Summary")
-        st.dataframe(summary, use_container_width=True)
+
+        def style_summary(df):
+            styles = pd.DataFrame("", index=df.index, columns=df.columns)
+            if "Past Pickup" in df.columns:
+                styles["Past Pickup"] = df["Past Pickup"].apply(
+                    lambda x: "background-color: #ff4b4b; color: white" if x > 0
+                    else "background-color: #21c354; color: white"
+                )
+            return styles
+
+        st.dataframe(summary.style.apply(style_summary, axis=None), use_container_width=True)
     else:
         st.info("No data to display. Add PO numbers in Report Controls and ensure CSVs are in the Downloads folder.")
 
