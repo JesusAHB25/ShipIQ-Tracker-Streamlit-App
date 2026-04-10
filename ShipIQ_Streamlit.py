@@ -77,6 +77,17 @@ def save_rc_to_github(df, sha):
     return r.json()["content"]["sha"]
 
 
+def purge_expired_pos(df, sha):
+    """Remove rows where Expiration Date has passed today. Saves to GitHub if any removed."""
+    today = pd.Timestamp.today().normalize()
+    mask = pd.to_datetime(df["Expiration Date"], format="%m/%d/%Y", errors="coerce")
+    expired = mask < today
+    if expired.any():
+        df = df[~expired].reset_index(drop=True)
+        sha = save_rc_to_github(df, sha)
+    return df, sha
+
+
 def list_csv_files_github():
     """List all CSVs currently in the Downloads/ folder on GitHub."""
     url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/Downloads"
@@ -89,7 +100,6 @@ def list_csv_files_github():
 def upload_csv_to_github(filename, content_bytes):
     """Upload a CSV file to Downloads/ on GitHub. Overwrites if exists."""
     url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/Downloads/{filename}"
-    # Check if file already exists to get its sha
     r = requests.get(url, headers=GH_HEADERS)
     payload = {
         "message": f"chore: upload {filename}",
@@ -111,65 +121,42 @@ def delete_csv_from_github(filename, sha):
         "branch": GITHUB_BRANCH,
     })
     return r.status_code == 200
-    """
-    Remove rows where Expiration Date has passed today.
-    If any were removed, saves the cleaned df back to GitHub.
-    Returns (cleaned_df, new_sha).
-    """
-    today = pd.Timestamp.today().normalize()
-    mask = pd.to_datetime(df["Expiration Date"], format="%m/%d/%Y", errors="coerce")
-    expired = mask < today
-    if expired.any():
-        df = df[~expired].reset_index(drop=True)
-        sha = save_rc_to_github(df, sha)
-    return df, sha
 
 # =============================================================================
 # DATA PROCESSING
 # =============================================================================
 @st.cache_data
 def get_datasets(rc_json):
-    """
-    Core ETL function. Takes report controls as JSON string (for cache hashing),
-    reads CSVs from /Downloads, and returns (summary, paste).
-    """
-    # --- Report Controls ---
+    """Core ETL. Reads CSVs from /Downloads, returns (summary, paste_display)."""
     rc = pd.read_json(io.StringIO(rc_json))
     if rc.empty:
         return None, None
     rc["PO # to Track"] = rc["PO # to Track"].astype("Int64")
 
-    # --- Ingest CSVs ---
     files = sorted(Path("Downloads").glob("*.csv"))
     if not files:
         return None, None
     paste = pd.concat([pd.read_csv(f) for f in files], ignore_index=True)
 
-    # --- Parse Dates ---
     for col in DATE_COLS:
         paste[col] = pd.to_datetime(paste[col], errors="coerce")
 
-    # --- Days Past Pickup ---
     days_diff = (pd.Timestamp.today() - paste["Pickup Date"]).dt.days
     paste["Days Past Pickup"] = np.where(paste["Status"] == "Past Pickup", days_diff, np.nan)
 
-    # --- Rename Columns ---
     paste = paste.rename(columns={"Purchase Order Number": "PO #", "Vendor Name": "Vendor"})
     paste["PO #"] = paste["PO #"].astype("Int64")
 
-    # --- Build Summary Skeleton ---
     summary = pd.DataFrame({
         "PO #":                rc["PO # to Track"].astype("Int64"),
         "What is the PO for?": rc["What is the PO for?"],
         "Expiration Date":     rc["Expiration Date"] if "Expiration Date" in rc.columns else ""
     })
 
-    # --- Vendor Mapping ---
     summary["Vendor"] = summary["PO #"].map(
         paste[["PO #", "Vendor"]].drop_duplicates("PO #").set_index("PO #")["Vendor"]
     ).fillna("NA")
 
-    # --- Status Counts ---
     status_pivot = paste.groupby(["PO #", "Status"])["Status"].count().unstack(fill_value=0)
     summary = summary.set_index("PO #")
     summary.update(status_pivot, join="left", overwrite=True)
@@ -179,11 +166,9 @@ def get_datasets(rc_json):
             summary[col] = 0.0
     summary = summary.fillna(0.0).reset_index()
 
-    # --- PO Status ---
     cancelled = paste[paste["Status"] == "Cancelled"]["PO #"].unique()
     summary["PO Status"] = np.where(summary["PO #"].isin(cancelled), "Cancelled", "Approved")
 
-    # --- Aggregated Dates ---
     date_aggs = {
         "Earliest Pickup Date":        ("Pickup Date",               "min"),
         "Latest Pickup Date":          ("Pickup Date",               "max"),
@@ -198,17 +183,15 @@ def get_datasets(rc_json):
             lambda x: "" if pd.isna(x) or x == 0 else pd.Timestamp(x).strftime("%m/%d/%Y")
         )
 
-    # --- Format Dates in paste for display ---
     paste_display = paste.assign(**{col: paste[col].dt.strftime("%m/%d/%Y") for col in DATE_COLS})
-
     return summary[SUMMARY_ORDER], paste_display
 
 # =============================================================================
-# SESSION STATE — load report controls once per session, purge expired POs
+# SESSION STATE
 # =============================================================================
 if "report_controls" not in st.session_state:
     df, sha = load_rc_from_github()
-    df, sha = purge_expired_pos(df, sha)   # auto-remove expired POs on load
+    df, sha = purge_expired_pos(df, sha)
     st.session_state.report_controls = df
     st.session_state.rc_sha = sha
 
@@ -236,7 +219,7 @@ with tab0:
             "What is the PO for?": st.column_config.TextColumn("What is the PO for?"),
             "Expiration Date": st.column_config.TextColumn(
                 "Expiration Date",
-                help="Enter the expiration date in MM/DD/YYYY format. When reached, the PO will be automatically removed.",
+                help="Enter date in MM/DD/YYYY format. When reached, the PO will be automatically removed."
             )
         }
     )
@@ -245,7 +228,6 @@ with tab0:
     with col_apply:
         if st.button("✅ Apply & Refresh", type="primary", use_container_width=True):
             edited["PO # to Track"] = pd.array(edited["PO # to Track"].dropna().astype(int), dtype="Int64")
-            # Normalize Expiration Date to MM/DD/YYYY string for storage
             edited["Expiration Date"] = pd.to_datetime(
                 edited["Expiration Date"], errors="coerce"
             ).dt.strftime("%m/%d/%Y").fillna("")
@@ -267,46 +249,34 @@ with tab0:
     st.subheader("📁 CSV File Manager")
     st.markdown("Upload new ShipIQ exports or delete files you no longer need from the `Downloads/` folder.")
 
-    # --- Upload ---
-    uploaded_files = st.file_uploader(
-        "Upload CSV files", type="csv", accept_multiple_files=True
-    )
+    uploaded_files = st.file_uploader("Upload CSV files", type="csv", accept_multiple_files=True)
     if uploaded_files:
         if st.button("⬆️ Upload to GitHub", type="primary"):
-            results = []
             for f in uploaded_files:
                 ok = upload_csv_to_github(f.name, f.read())
-                results.append((f.name, ok))
-            for name, ok in results:
                 if ok:
-                    st.success(f"✅ {name} uploaded successfully.")
+                    st.success(f"✅ {f.name} uploaded successfully.")
                 else:
-                    st.error(f"❌ Failed to upload {name}.")
+                    st.error(f"❌ Failed to upload {f.name}.")
             st.cache_data.clear()
             st.rerun()
 
-    # --- Current files + delete ---
     st.markdown("**Files currently in `Downloads/`:**")
     csv_files = list_csv_files_github()
     if not csv_files:
         st.info("No CSV files found in Downloads/.")
     else:
-        to_delete = []
         for f in csv_files:
             col_name, col_btn = st.columns([5, 1])
             col_name.write(f["name"])
             if col_btn.button("🗑️", key=f"del_{f['name']}"):
-                to_delete.append(f)
-
-        if to_delete:
-            for f in to_delete:
                 ok = delete_csv_from_github(f["name"], f["sha"])
                 if ok:
                     st.success(f"✅ {f['name']} deleted.")
                 else:
                     st.error(f"❌ Failed to delete {f['name']}.")
-            st.cache_data.clear()
-            st.rerun()
+                st.cache_data.clear()
+                st.rerun()
 
 # --- Load Data ---
 summary, all_data = get_datasets(st.session_state.report_controls.to_json())
