@@ -77,7 +77,40 @@ def save_rc_to_github(df, sha):
     return r.json()["content"]["sha"]
 
 
-def purge_expired_pos(df, sha):
+def list_csv_files_github():
+    """List all CSVs currently in the Downloads/ folder on GitHub."""
+    url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/Downloads"
+    r = requests.get(url, headers=GH_HEADERS, params={"ref": GITHUB_BRANCH})
+    if r.status_code != 200:
+        return []
+    return [f for f in r.json() if f["name"].endswith(".csv")]
+
+
+def upload_csv_to_github(filename, content_bytes):
+    """Upload a CSV file to Downloads/ on GitHub. Overwrites if exists."""
+    url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/Downloads/{filename}"
+    # Check if file already exists to get its sha
+    r = requests.get(url, headers=GH_HEADERS)
+    payload = {
+        "message": f"chore: upload {filename}",
+        "content": base64.b64encode(content_bytes).decode(),
+        "branch": GITHUB_BRANCH,
+    }
+    if r.status_code == 200:
+        payload["sha"] = r.json()["sha"]
+    r = requests.put(url, headers=GH_HEADERS, json=payload)
+    return r.status_code in (200, 201)
+
+
+def delete_csv_from_github(filename, sha):
+    """Delete a CSV file from Downloads/ on GitHub."""
+    url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/Downloads/{filename}"
+    r = requests.delete(url, headers=GH_HEADERS, json={
+        "message": f"chore: delete {filename}",
+        "sha": sha,
+        "branch": GITHUB_BRANCH,
+    })
+    return r.status_code == 200
     """
     Remove rows where Expiration Date has passed today.
     If any were removed, saves the cleaned df back to GitHub.
@@ -224,6 +257,54 @@ with tab0:
         if st.button("🗑️ Reset", type="secondary", use_container_width=True):
             st.session_state.report_controls = EMPTY_RC.copy()
             st.session_state.rc_sha = save_rc_to_github(EMPTY_RC.copy(), st.session_state.rc_sha)
+            st.cache_data.clear()
+            st.rerun()
+
+    # -------------------------------------------------------------------------
+    # CSV FILE MANAGER
+    # -------------------------------------------------------------------------
+    st.divider()
+    st.subheader("📁 CSV File Manager")
+    st.markdown("Upload new ShipIQ exports or delete files you no longer need from the `Downloads/` folder.")
+
+    # --- Upload ---
+    uploaded_files = st.file_uploader(
+        "Upload CSV files", type="csv", accept_multiple_files=True
+    )
+    if uploaded_files:
+        if st.button("⬆️ Upload to GitHub", type="primary"):
+            results = []
+            for f in uploaded_files:
+                ok = upload_csv_to_github(f.name, f.read())
+                results.append((f.name, ok))
+            for name, ok in results:
+                if ok:
+                    st.success(f"✅ {name} uploaded successfully.")
+                else:
+                    st.error(f"❌ Failed to upload {name}.")
+            st.cache_data.clear()
+            st.rerun()
+
+    # --- Current files + delete ---
+    st.markdown("**Files currently in `Downloads/`:**")
+    csv_files = list_csv_files_github()
+    if not csv_files:
+        st.info("No CSV files found in Downloads/.")
+    else:
+        to_delete = []
+        for f in csv_files:
+            col_name, col_btn = st.columns([5, 1])
+            col_name.write(f["name"])
+            if col_btn.button("🗑️", key=f"del_{f['name']}"):
+                to_delete.append(f)
+
+        if to_delete:
+            for f in to_delete:
+                ok = delete_csv_from_github(f["name"], f["sha"])
+                if ok:
+                    st.success(f"✅ {f['name']} deleted.")
+                else:
+                    st.error(f"❌ Failed to delete {f['name']}.")
             st.cache_data.clear()
             st.rerun()
 
