@@ -165,6 +165,9 @@ def get_datasets(rc_json):
         if col not in summary.columns:
             summary[col] = 0.0
     summary = summary.fillna(0.0).reset_index()
+    for col in STATUS_COLS:
+        if col in summary.columns:
+            summary[col] = summary[col].astype(int)
 
     cancelled = paste[paste["Status"] == "Cancelled"]["PO #"].unique()
     summary["PO Status"] = np.where(summary["PO #"].isin(cancelled), "Cancelled", "Approved")
