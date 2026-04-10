@@ -21,7 +21,7 @@ GH_HEADERS    = {"Authorization": f"token {GITHUB_TOKEN}", "Accept": "applicatio
 DATE_COLS     = ["Pickup Date", "In Yard Goal Date", "Final Routing Expected By", "Review By Date"]
 STATUS_COLS   = ["Picked Up", "Past Pickup", "Small Package", "Awaiting Pickup",
                  "Content Review Required", "Routing In Progress", "On Hold for routing", "Cancelled"]
-SUMMARY_ORDER = ["PO #", "What is the PO for?", "Expiration Date"] + STATUS_COLS + [
+SUMMARY_ORDER = ["PO #", "Vendor", "What is the PO for?", "Expiration Date"] + STATUS_COLS + [
                  "PO Status", "Earliest Pickup Date", "Latest Pickup Date",
                  "Earliest In Yard Goal Date", "Latest In Yard Goal Date",
                  "Earliest Final Routing Date", "Latest Final Routing Date"]
