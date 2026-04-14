@@ -288,6 +288,7 @@ summary, all_data = get_datasets(st.session_state.report_controls.to_json())
 with tab1:
     if summary is not None:
         st.subheader("Dataset: Summary")
+        summary_display = summary.sort_values("Vendor", na_position="last").reset_index(drop=True)
 
         for col in STATUS_COLS:
             if col in summary.columns:
@@ -334,7 +335,7 @@ with tab1:
             </div>
             """
 
-        st.html(summary_to_html(summary))
+        st.html(summary_to_html(summary_display))
     else:
         st.info("No data to display. Add PO numbers in Report Controls and ensure CSVs are in the Downloads folder.")
 
