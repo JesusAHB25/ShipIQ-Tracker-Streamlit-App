@@ -289,16 +289,48 @@ with tab1:
     if summary is not None:
         st.subheader("Dataset: Summary")
 
-        def style_summary(df):
-            styles = pd.DataFrame("", index=df.index, columns=df.columns)
-            if "Past Pickup" in df.columns:
-                styles["Past Pickup"] = df["Past Pickup"].apply(
-                    lambda x: "background-color: #ff4b4b; color: white" if x > 0
-                    else "background-color: #21c354; color: white"
-                )
-            return styles
+        for col in STATUS_COLS:
+            if col in summary.columns:
+                summary[col] = summary[col].astype(int)
 
-        st.dataframe(summary.style.apply(style_summary, axis=None), use_container_width=True)
+        def summary_to_html(df):
+            def cell_style(col, val):
+                if col == "Past Pickup":
+                    color = "#ff4b4b" if val > 0 else "#21c354"
+                    return f'style="background-color:{color}; color:white; text-align:center;"'
+                if col in STATUS_COLS:
+                    return 'style="text-align:center;"'
+                return ""
+
+            headers = "".join(
+                f'<th style="white-space:normal; word-wrap:break-word; '
+                f'min-width:60px; max-width:120px; padding:6px 8px; '
+                f'font-size:12px; text-align:center;">{c}</th>'
+                for c in df.columns
+            )
+            rows = ""
+            for _, row in df.iterrows():
+                cells = ""
+                for col in df.columns:
+                    val = row[col]
+                    style = cell_style(col, val)
+                    cells += f'<td {style} style="white-space:normal; word-wrap:break-word; font-size:12px; padding:4px 8px;">{val}</td>'
+                rows += f"<tr>{cells}</tr>"
+
+            return f"""
+            <div style="overflow-x:auto; width:100%;">
+              <table style="border-collapse:collapse; width:100%; table-layout:fixed;">
+                <thead style="background-color:#0e1117; color:white;">
+                  <tr>{headers}</tr>
+                </thead>
+                <tbody>
+                  {rows}
+                </tbody>
+              </table>
+            </div>
+            """
+
+        st.html(summary_to_html(summary))
     else:
         st.info("No data to display. Add PO numbers in Report Controls and ensure CSVs are in the Downloads folder.")
 
