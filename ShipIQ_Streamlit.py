@@ -290,6 +290,26 @@ with tab1:
         st.subheader("Dataset: Summary")
         summary_display = summary.sort_values("Vendor", na_position="last").reset_index(drop=True)
 
+        # --- Vendor Filter Buttons ---
+        vendors = ["All"] + sorted(summary_display["Vendor"].dropna().unique().tolist())
+        if "selected_vendor" not in st.session_state:
+            st.session_state.selected_vendor = "All"
+
+        btn_cols = st.columns(len(vendors))
+        for i, vendor in enumerate(vendors):
+            is_active = st.session_state.selected_vendor == vendor
+            if btn_cols[i].button(
+                vendor,
+                key=f"vendor_{vendor}",
+                type="primary" if is_active else "secondary",
+                use_container_width=True
+            ):
+                st.session_state.selected_vendor = vendor
+                st.rerun()
+
+        if st.session_state.selected_vendor != "All":
+            summary_display = summary_display[summary_display["Vendor"] == st.session_state.selected_vendor]
+
         for col in STATUS_COLS:
             if col in summary.columns:
                 summary[col] = summary[col].astype(int)
