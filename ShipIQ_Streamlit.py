@@ -295,37 +295,41 @@ with tab1:
 
         def summary_to_html(df):
             def cell_style(col, val):
+                base = "white-space:normal; word-wrap:break-word; font-size:12px; padding:6px 8px;"
                 if col == "Past Pickup":
                     color = "#ff4b4b" if val > 0 else "#21c354"
-                    return f'style="background-color:{color}; color:white; text-align:center;"'
+                    return f'style="{base} background-color:{color}; color:white; text-align:center;"'
                 if col in STATUS_COLS:
-                    return 'style="text-align:center;"'
-                return ""
+                    return f'style="{base} text-align:center;"'
+                return f'style="{base}"'
 
             headers = "".join(
                 f'<th style="white-space:normal; word-wrap:break-word; '
                 f'min-width:60px; max-width:120px; padding:6px 8px; '
-                f'font-size:12px; text-align:center;">{c}</th>'
+                f'font-size:12px; text-align:center; position:sticky; top:0; z-index:1;">{c}</th>'
                 for c in df.columns
             )
             rows = ""
-            for _, row in df.iterrows():
-                cells = ""
-                for col in df.columns:
-                    val = row[col]
-                    style = cell_style(col, val)
-                    cells += f'<td {style} style="white-space:normal; word-wrap:break-word; font-size:12px; padding:4px 8px;">{val}</td>'
-                rows += f"<tr>{cells}</tr>"
+            for i, (_, row) in enumerate(df.iterrows()):
+                bg = "#1a1a2e" if i % 2 == 0 else "#16213e"
+                cells = "".join(
+                    f'<td {cell_style(col, row[col])}>{row[col]}</td>'
+                    for col in df.columns
+                )
+                rows += f'<tr style="background-color:{bg};" onmouseover="this.style.backgroundColor=\'#2a2a4e\'" onmouseout="this.style.backgroundColor=\'{bg}\'">{cells}</tr>'
 
             return f"""
-            <div style="overflow-x:auto; width:100%;">
-              <table style="border-collapse:collapse; width:100%; table-layout:fixed;">
-                <thead style="background-color:#0e1117; color:white;">
-                  <tr>{headers}</tr>
-                </thead>
-                <tbody>
-                  {rows}
-                </tbody>
+            <style>
+              .summary-table {{ border-collapse: collapse; width: 100%; table-layout: fixed; }}
+              .summary-table thead tr {{ background-color: #1f2937; color: #e5e7eb; border-bottom: 2px solid #374151; }}
+              .summary-table tbody tr {{ color: #e5e7eb; border-bottom: 1px solid #374151; transition: background-color 0.1s; }}
+              .summary-table td, .summary-table th {{ border-right: 1px solid #374151; }}
+              .summary-table td:last-child, .summary-table th:last-child {{ border-right: none; }}
+            </style>
+            <div style="overflow-x:auto; width:100%; max-height:600px; overflow-y:auto; border:1px solid #374151; border-radius:6px;">
+              <table class="summary-table">
+                <thead><tr>{headers}</tr></thead>
+                <tbody>{rows}</tbody>
               </table>
             </div>
             """
