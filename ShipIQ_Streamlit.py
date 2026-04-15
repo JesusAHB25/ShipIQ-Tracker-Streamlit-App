@@ -333,7 +333,7 @@ with tab1:
                 col_widths[col] = "45px"
 
             def cell_style(col, val):
-                base = "white-space:normal; word-wrap:break-word; font-size:11px; padding:4px 3px;"
+                base = "white-space:normal; word-wrap:break-word; font-size:12px; padding:6px 8px;"
                 if col == "Past Pickup":
                     color = "#ff4b4b" if val > 0 else "#21c354"
                     return f'style="{base} background-color:{color}; color:white; text-align:center;"'
@@ -343,8 +343,8 @@ with tab1:
 
             headers = "".join(
                 f'<th style="white-space:normal; word-wrap:break-word; '
-                f'width:{col_widths.get(c, "70px")}; padding:4px 3px; '
-                f'font-size:11px; text-align:center; position:sticky; top:0; z-index:1;">{c}</th>'
+                f'width:{col_widths.get(c, "80px")}; padding:6px 8px; '
+                f'font-size:12px; text-align:center; position:sticky; top:0; z-index:1;">{c}</th>'
                 for c in df.columns
             )
             rows = ""
