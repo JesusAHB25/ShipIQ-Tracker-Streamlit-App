@@ -315,18 +315,36 @@ with tab1:
             summary_display = summary_display[summary_display["Vendor"] == st.session_state.selected_vendor]
 
         def summary_to_html(df):
+            col_widths = {
+                "PO #": "100px",
+                "Vendor": "100px",
+                "What is the PO for?": "130px",
+                "Expiration Date": "80px",
+                "Max Past Pickup Days": "70px",
+                "PO Status": "70px",
+                "Earliest Pickup Date": "80px",
+                "Latest Pickup Date": "80px",
+                "Earliest In Yard Goal Date": "80px",
+                "Latest In Yard Goal Date": "80px",
+                "Earliest Final Routing Date": "80px",
+                "Latest Final Routing Date": "80px",
+            }
+            # Status columns get narrow fixed width
+            for col in STATUS_COLS:
+                col_widths[col] = "55px"
+
             def cell_style(col, val):
-                base = "white-space:normal; word-wrap:break-word; font-size:12px; padding:6px 8px;"
+                base = "white-space:normal; word-wrap:break-word; font-size:12px; padding:6px 4px;"
                 if col == "Past Pickup":
                     color = "#ff4b4b" if val > 0 else "#21c354"
                     return f'style="{base} background-color:{color}; color:white; text-align:center;"'
-                if col in STATUS_COLS:
+                if col in STATUS_COLS or col in ("Max Past Pickup Days", "PO Status"):
                     return f'style="{base} text-align:center;"'
                 return f'style="{base}"'
 
             headers = "".join(
                 f'<th style="white-space:normal; word-wrap:break-word; '
-                f'min-width:60px; max-width:120px; padding:6px 8px; '
+                f'width:{col_widths.get(c, "80px")}; padding:6px 4px; '
                 f'font-size:12px; text-align:center; position:sticky; top:0; z-index:1;">{c}</th>'
                 for c in df.columns
             )
