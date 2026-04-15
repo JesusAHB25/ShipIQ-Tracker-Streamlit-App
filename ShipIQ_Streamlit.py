@@ -197,7 +197,8 @@ def get_datasets(rc_json):
         )
 
     paste_display = paste.assign(**{col: paste[col].dt.strftime("%m/%d/%Y") for col in DATE_COLS})
-    return summary[SUMMARY_ORDER], paste_display
+    final_cols = [c for c in SUMMARY_ORDER if c in summary.columns]
+    return summary[final_cols], paste_display
 
 # =============================================================================
 # SESSION STATE
