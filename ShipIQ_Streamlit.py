@@ -22,7 +22,8 @@ DATE_COLS     = ["Pickup Date", "In Yard Goal Date", "Final Routing Expected By"
 STATUS_COLS   = ["Picked Up", "Past Pickup", "Small Package", "Awaiting Pickup",
                  "Content Review Required", "Routing In Progress", "On Hold for routing", "Cancelled"]
 SUMMARY_ORDER = ["PO #", "Vendor", "What is the PO for?", "Expiration Date"] + STATUS_COLS + [
-                 "PO Status", "Earliest Pickup Date", "Latest Pickup Date",
+                 "Max Past Pickup Days", "PO Status",
+                 "Earliest Pickup Date", "Latest Pickup Date",
                  "Earliest In Yard Goal Date", "Latest In Yard Goal Date",
                  "Earliest Final Routing Date", "Latest Final Routing Date"]
 DEEPDIVE_COLS = ["Department", "Address", "Shipment ID", "Destination", "Status",
