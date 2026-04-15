@@ -166,7 +166,10 @@ def get_datasets(rc_json):
         .reset_index()
         .rename(columns={"Carrier Accepted, Awaiting Pickup": "Awaiting Pickup"})
     )
-    summary = summary.merge(status_pivot, on="PO #", how="left")
+    # Drop Vendor before merge to avoid duplication, re-map after
+    vendor_map = summary.set_index("PO #")["Vendor"]
+    summary = summary.drop(columns=["Vendor"]).merge(status_pivot, on="PO #", how="left")
+    summary["Vendor"] = summary["PO #"].map(vendor_map)
     for col in STATUS_COLS:
         if col not in summary.columns:
             summary[col] = 0
