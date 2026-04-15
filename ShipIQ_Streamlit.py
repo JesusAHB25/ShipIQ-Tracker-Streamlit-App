@@ -21,7 +21,7 @@ GH_HEADERS    = {"Authorization": f"token {GITHUB_TOKEN}", "Accept": "applicatio
 DATE_COLS     = ["Pickup Date", "In Yard Goal Date", "Final Routing Expected By", "Review By Date"]
 STATUS_COLS   = ["Picked Up", "Past Pickup", "Small Package", "Awaiting Pickup",
                  "Content Review Required", "Routing In Progress", "On Hold for routing", "Cancelled"]
-SUMMARY_ORDER = ["PO #", "Vendor", "What is the PO for?", "Expiration Date"] + STATUS_COLS + [
+SUMMARY_ORDER = ["PO #", "Vendor", "What is the PO for?", "Exp. Date"] + STATUS_COLS + [
                  "Max Past Pickup Days", "PO Status",
                  "Earliest Pickup Date", "Latest Pickup Date",
                  "Earliest In Yard Goal Date", "Latest In Yard Goal Date",
@@ -319,18 +319,18 @@ with tab1:
                 "PO #": "100px",
                 "Vendor": "100px",
                 "What is the PO for?": "130px",
-                "Expiration Date": "70px",
-                "Max Past Pickup Days": "55px",
-                "PO Status": "60px",
-                "Earliest Pickup Date": "70px",
-                "Latest Pickup Date": "70px",
-                "Earliest In Yard Goal Date": "70px",
-                "Latest In Yard Goal Date": "70px",
-                "Earliest Final Routing Date": "70px",
-                "Latest Final Routing Date": "70px",
+                "Exp. Date": "70px",
+                "Max Past Pickup Days": "70px",
+                "PO Status": "70px",
+                "Earliest Pickup Date": "80px",
+                "Latest Pickup Date": "80px",
+                "Earliest In Yard Goal Date": "80px",
+                "Latest In Yard Goal Date": "80px",
+                "Earliest Final Routing Date": "80px",
+                "Latest Final Routing Date": "80px",
             }
             for col in STATUS_COLS:
-                col_widths[col] = "45px"
+                col_widths[col] = "70px"
 
             def cell_style(col, val):
                 base = "white-space:normal; word-wrap:break-word; font-size:12px; padding:6px 8px;"
