@@ -192,12 +192,8 @@ def get_datasets(rc_json):
             lambda x: "" if pd.isna(x) or x == 0 else pd.Timestamp(x).strftime("%m/%d/%Y")
         )
 
-    # --- Debug: show all columns before filtering ---
-    st.write("DEBUG columns:", summary.columns.tolist())
-
     paste_display = paste.assign(**{col: paste[col].dt.strftime("%m/%d/%Y") for col in DATE_COLS})
-    final_cols = [c for c in SUMMARY_ORDER if c in summary.columns]
-    return summary[final_cols], paste_display
+    return summary[SUMMARY_ORDER], paste_display
 
 # =============================================================================
 # SESSION STATE
