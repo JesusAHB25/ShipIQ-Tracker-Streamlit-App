@@ -168,9 +168,11 @@ def get_datasets(rc_json):
             summary[col] = summary[col].fillna(0).astype(int)
 
     # --- Max Past Pickup Days ---
-    max_pickup = paste.groupby("PO #")["Pickup Date"].max()
+    # Only consider shipments with status "Past Pickup"
+    past_pickup_df = paste[paste["Status"] == "Past Pickup"]
+    max_pickup = past_pickup_df.groupby("PO #")["Pickup Date"].max()
     summary["Max Past Pickup Days"] = summary["PO #"].map(max_pickup).apply(
-        lambda x: max(0, (pd.Timestamp.today().normalize() - x).days) if pd.notna(x) else ""
+        lambda x: max(0, (pd.Timestamp.today().normalize() - x).days) if pd.notna(x) else 0
     )
 
     # --- PO Status ---
