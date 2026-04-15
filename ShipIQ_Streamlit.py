@@ -157,14 +157,20 @@ def get_datasets(rc_json):
         paste[["PO #", "Vendor"]].drop_duplicates("PO #").set_index("PO #")["Vendor"]
     ).fillna("NA")
 
-    status_pivot = paste.groupby(["PO #", "Status"])["Status"].count().unstack(fill_value=0)
-    summary = summary.set_index("PO #")
-    summary.update(status_pivot, join="left", overwrite=True)
-    summary = summary.rename(columns={"Carrier Accepted, Awaiting Pickup": "Awaiting Pickup"})
+    # --- Status Counts ---
+    status_pivot = (
+        paste.groupby(["PO #", "Status"])["Status"]
+        .count()
+        .unstack(fill_value=0)
+        .reset_index()
+        .rename(columns={"Carrier Accepted, Awaiting Pickup": "Awaiting Pickup"})
+    )
+    summary = summary.merge(status_pivot, on="PO #", how="left")
     for col in STATUS_COLS:
         if col not in summary.columns:
-            summary[col] = 0.0
-    summary = summary.fillna(0.0).reset_index()
+            summary[col] = 0
+        else:
+            summary[col] = summary[col].fillna(0).astype(int)
     for col in STATUS_COLS:
         if col in summary.columns:
             summary[col] = summary[col].astype(int)
