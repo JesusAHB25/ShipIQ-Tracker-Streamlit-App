@@ -25,7 +25,8 @@ SUMMARY_ORDER = ["PO #", "Vendor", "What is the PO for?", "Expiration Date"] + S
                  "Max Past Pickup Days", "PO Status",
                  "Earliest Pickup Date", "Latest Pickup Date",
                  "Earliest In Yard Goal Date", "Latest In Yard Goal Date",
-                 "Earliest Final Routing Date", "Latest Final Routing Date"]DEEPDIVE_COLS = ["Department", "Address", "Shipment ID", "Destination", "Status",
+                 "Earliest Final Routing Date", "Latest Final Routing Date"]
+DEEPDIVE_COLS = ["Department", "Address", "Shipment ID", "Destination", "Status",
                  "Pickup Date", "In Yard Goal Date", "Final Routing Expected By",
                  "Review By Date", "Last Updated By"]
 EMPTY_RC      = pd.DataFrame({
@@ -38,7 +39,6 @@ EMPTY_RC      = pd.DataFrame({
 # GITHUB HELPERS
 # =============================================================================
 def load_rc_from_github():
-    """Fetch report_controls_data.csv from GitHub. Returns (DataFrame, sha)."""
     r = requests.get(API_URL, headers=GH_HEADERS, params={"ref": GITHUB_BRANCH})
     if r.status_code != 200:
         return EMPTY_RC.copy(), None
@@ -62,7 +62,6 @@ def load_rc_from_github():
 
 
 def save_rc_to_github(df, sha):
-    """Push updated report_controls_data.csv to GitHub. Returns new sha or None on failure."""
     payload = {
         "message": "chore: update report_controls_data.csv",
         "content": base64.b64encode(df.to_csv(index=False).encode()).decode(),
@@ -78,7 +77,6 @@ def save_rc_to_github(df, sha):
 
 
 def purge_expired_pos(df, sha):
-    """Remove rows where Expiration Date has passed today. Saves to GitHub if any removed."""
     today = pd.Timestamp.today().normalize()
     mask = pd.to_datetime(df["Expiration Date"], format="%m/%d/%Y", errors="coerce")
     expired = mask < today
@@ -89,7 +87,6 @@ def purge_expired_pos(df, sha):
 
 
 def list_csv_files_github():
-    """List all CSVs currently in the Downloads/ folder on GitHub."""
     url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/Downloads"
     r = requests.get(url, headers=GH_HEADERS, params={"ref": GITHUB_BRANCH})
     if r.status_code != 200:
@@ -98,7 +95,6 @@ def list_csv_files_github():
 
 
 def upload_csv_to_github(filename, content_bytes):
-    """Upload a CSV file to Downloads/ on GitHub. Overwrites if exists."""
     url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/Downloads/{filename}"
     r = requests.get(url, headers=GH_HEADERS)
     payload = {
@@ -113,7 +109,6 @@ def upload_csv_to_github(filename, content_bytes):
 
 
 def delete_csv_from_github(filename, sha):
-    """Delete a CSV file from Downloads/ on GitHub."""
     url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/Downloads/{filename}"
     r = requests.delete(url, headers=GH_HEADERS, json={
         "message": f"chore: delete {filename}",
@@ -127,7 +122,6 @@ def delete_csv_from_github(filename, sha):
 # =============================================================================
 @st.cache_data
 def get_datasets(rc_json):
-    """Core ETL. Reads CSVs from /Downloads, returns (summary, paste_display)."""
     rc = pd.read_json(io.StringIO(rc_json))
     if rc.empty:
         return None, None
@@ -147,15 +141,16 @@ def get_datasets(rc_json):
     paste = paste.rename(columns={"Purchase Order Number": "PO #", "Vendor Name": "Vendor"})
     paste["PO #"] = paste["PO #"].astype("Int64")
 
+    # --- Build Summary Skeleton ---
     summary = pd.DataFrame({
         "PO #":                rc["PO # to Track"].astype("Int64"),
         "What is the PO for?": rc["What is the PO for?"],
         "Expiration Date":     rc["Expiration Date"] if "Expiration Date" in rc.columns else ""
     })
 
-    summary["Vendor"] = summary["PO #"].map(
-        paste[["PO #", "Vendor"]].drop_duplicates("PO #").set_index("PO #")["Vendor"]
-    ).fillna("NA")
+    # --- Vendor Mapping ---
+    vendor_map = paste[["PO #", "Vendor"]].drop_duplicates("PO #").set_index("PO #")["Vendor"]
+    summary["Vendor"] = summary["PO #"].map(vendor_map).fillna("NA")
 
     # --- Status Counts ---
     status_pivot = (
@@ -165,22 +160,24 @@ def get_datasets(rc_json):
         .reset_index()
         .rename(columns={"Carrier Accepted, Awaiting Pickup": "Awaiting Pickup"})
     )
-    # Drop Vendor before merge to avoid duplication, re-map after
-    vendor_map = summary.set_index("PO #")["Vendor"]
-    summary = summary.drop(columns=["Vendor"]).merge(status_pivot, on="PO #", how="left")
-    summary["Vendor"] = summary["PO #"].map(vendor_map)
+    summary = summary.merge(status_pivot, on="PO #", how="left")
     for col in STATUS_COLS:
         if col not in summary.columns:
             summary[col] = 0
         else:
             summary[col] = summary[col].fillna(0).astype(int)
-    for col in STATUS_COLS:
-        if col in summary.columns:
-            summary[col] = summary[col].astype(int)
 
+    # --- Max Past Pickup Days ---
+    max_pickup = paste.groupby("PO #")["Pickup Date"].max()
+    summary["Max Past Pickup Days"] = summary["PO #"].map(max_pickup).apply(
+        lambda x: max(0, (pd.Timestamp.today().normalize() - x).days) if pd.notna(x) else ""
+    )
+
+    # --- PO Status ---
     cancelled = paste[paste["Status"] == "Cancelled"]["PO #"].unique()
     summary["PO Status"] = np.where(summary["PO #"].isin(cancelled), "Cancelled", "Approved")
 
+    # --- Aggregated Dates ---
     date_aggs = {
         "Earliest Pickup Date":        ("Pickup Date",               "min"),
         "Latest Pickup Date":          ("Pickup Date",               "max"),
@@ -194,6 +191,9 @@ def get_datasets(rc_json):
         summary[out_col] = summary["PO #"].map(agg).apply(
             lambda x: "" if pd.isna(x) or x == 0 else pd.Timestamp(x).strftime("%m/%d/%Y")
         )
+
+    # --- Debug: show all columns before filtering ---
+    st.write("DEBUG columns:", summary.columns.tolist())
 
     paste_display = paste.assign(**{col: paste[col].dt.strftime("%m/%d/%Y") for col in DATE_COLS})
     final_cols = [c for c in SUMMARY_ORDER if c in summary.columns]
@@ -255,9 +255,6 @@ with tab0:
             st.cache_data.clear()
             st.rerun()
 
-    # -------------------------------------------------------------------------
-    # CSV FILE MANAGER
-    # -------------------------------------------------------------------------
     st.divider()
     st.subheader("📁 CSV File Manager")
     st.markdown("Upload new ShipIQ exports or delete files you no longer need from the `Downloads/` folder.")
@@ -300,7 +297,6 @@ with tab1:
         st.subheader("Dataset: Summary")
         summary_display = summary.sort_values("Vendor", na_position="last").reset_index(drop=True)
 
-        # --- Vendor Filter Buttons ---
         vendors = ["All"] + sorted(summary_display["Vendor"].dropna().unique().tolist())
         if "selected_vendor" not in st.session_state:
             st.session_state.selected_vendor = "All"
@@ -319,10 +315,6 @@ with tab1:
 
         if st.session_state.selected_vendor != "All":
             summary_display = summary_display[summary_display["Vendor"] == st.session_state.selected_vendor]
-
-        for col in STATUS_COLS:
-            if col in summary.columns:
-                summary[col] = summary[col].astype(int)
 
         def summary_to_html(df):
             def cell_style(col, val):
