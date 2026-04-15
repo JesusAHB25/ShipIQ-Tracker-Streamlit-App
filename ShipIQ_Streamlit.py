@@ -319,22 +319,21 @@ with tab1:
                 "PO #": "100px",
                 "Vendor": "100px",
                 "What is the PO for?": "130px",
-                "Expiration Date": "80px",
-                "Max Past Pickup Days": "70px",
-                "PO Status": "70px",
-                "Earliest Pickup Date": "80px",
-                "Latest Pickup Date": "80px",
-                "Earliest In Yard Goal Date": "80px",
-                "Latest In Yard Goal Date": "80px",
-                "Earliest Final Routing Date": "80px",
-                "Latest Final Routing Date": "80px",
+                "Expiration Date": "70px",
+                "Max Past Pickup Days": "55px",
+                "PO Status": "60px",
+                "Earliest Pickup Date": "70px",
+                "Latest Pickup Date": "70px",
+                "Earliest In Yard Goal Date": "70px",
+                "Latest In Yard Goal Date": "70px",
+                "Earliest Final Routing Date": "70px",
+                "Latest Final Routing Date": "70px",
             }
-            # Status columns get narrow fixed width
             for col in STATUS_COLS:
-                col_widths[col] = "55px"
+                col_widths[col] = "45px"
 
             def cell_style(col, val):
-                base = "white-space:normal; word-wrap:break-word; font-size:12px; padding:6px 4px;"
+                base = "white-space:normal; word-wrap:break-word; font-size:11px; padding:4px 3px;"
                 if col == "Past Pickup":
                     color = "#ff4b4b" if val > 0 else "#21c354"
                     return f'style="{base} background-color:{color}; color:white; text-align:center;"'
@@ -344,8 +343,8 @@ with tab1:
 
             headers = "".join(
                 f'<th style="white-space:normal; word-wrap:break-word; '
-                f'width:{col_widths.get(c, "80px")}; padding:6px 4px; '
-                f'font-size:12px; text-align:center; position:sticky; top:0; z-index:1;">{c}</th>'
+                f'width:{col_widths.get(c, "70px")}; padding:4px 3px; '
+                f'font-size:11px; text-align:center; position:sticky; top:0; z-index:1;">{c}</th>'
                 for c in df.columns
             )
             rows = ""
