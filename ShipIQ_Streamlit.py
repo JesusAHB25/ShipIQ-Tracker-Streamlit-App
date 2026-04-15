@@ -25,8 +25,7 @@ SUMMARY_ORDER = ["PO #", "Vendor", "What is the PO for?", "Expiration Date"] + S
                  "Max Past Pickup Days", "PO Status",
                  "Earliest Pickup Date", "Latest Pickup Date",
                  "Earliest In Yard Goal Date", "Latest In Yard Goal Date",
-                 "Earliest Final Routing Date", "Latest Final Routing Date"]
-DEEPDIVE_COLS = ["Department", "Address", "Shipment ID", "Destination", "Status",
+                 "Earliest Final Routing Date", "Latest Final Routing Date"]DEEPDIVE_COLS = ["Department", "Address", "Shipment ID", "Destination", "Status",
                  "Pickup Date", "In Yard Goal Date", "Final Routing Expected By",
                  "Review By Date", "Last Updated By"]
 EMPTY_RC      = pd.DataFrame({
