@@ -145,7 +145,7 @@ def get_datasets(rc_json):
     summary = pd.DataFrame({
         "PO #":                rc["PO # to Track"].astype("Int64"),
         "What is the PO for?": rc["What is the PO for?"],
-        "Expiration Date":     rc["Expiration Date"] if "Expiration Date" in rc.columns else ""
+        "Exp. Date":           rc["Expiration Date"] if "Expiration Date" in rc.columns else ""
     })
 
     # --- Vendor Mapping ---
@@ -160,7 +160,9 @@ def get_datasets(rc_json):
         .reset_index()
         .rename(columns={"Carrier Accepted, Awaiting Pickup": "Awaiting Pickup"})
     )
-    summary = summary.merge(status_pivot, on="PO #", how="left")
+    vendor_map_backup = summary.set_index("PO #")["Vendor"]
+    summary = summary.drop(columns=["Vendor"]).merge(status_pivot, on="PO #", how="left")
+    summary["Vendor"] = summary["PO #"].map(vendor_map_backup)
     for col in STATUS_COLS:
         if col not in summary.columns:
             summary[col] = 0
@@ -168,7 +170,6 @@ def get_datasets(rc_json):
             summary[col] = summary[col].fillna(0).astype(int)
 
     # --- Max Past Pickup Days ---
-    # Only consider shipments with status "Past Pickup"
     past_pickup_df = paste[paste["Status"] == "Past Pickup"]
     min_pickup = past_pickup_df.groupby("PO #")["Pickup Date"].min()
     summary["Max Past Pickup Days"] = summary["PO #"].map(min_pickup).apply(
@@ -194,7 +195,8 @@ def get_datasets(rc_json):
             lambda x: "" if pd.isna(x) or x == 0 else pd.Timestamp(x).strftime("%m/%d/%Y")
         )
 
-    # --- PO Status ---
+    paste_display = paste.assign(**{col: paste[col].dt.strftime("%m/%d/%Y") for col in DATE_COLS})
+    return summary[SUMMARY_ORDER], paste_display
 
 # =============================================================================
 # SESSION STATE
