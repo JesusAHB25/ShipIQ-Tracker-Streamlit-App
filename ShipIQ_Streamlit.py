@@ -194,8 +194,7 @@ def get_datasets(rc_json):
             lambda x: "" if pd.isna(x) or x == 0 else pd.Timestamp(x).strftime("%m/%d/%Y")
         )
 
-    paste_display = paste.assign(**{col: paste[col].dt.strftime("%m/%d/%Y") for col in DATE_COLS})
-    return summary[SUMMARY_ORDER], paste_display
+    # --- PO Status ---
 
 # =============================================================================
 # SESSION STATE
@@ -364,7 +363,7 @@ with tab1:
               .summary-table td, .summary-table th {{ border-right: 1px solid #374151; }}
               .summary-table td:last-child, .summary-table th:last-child {{ border-right: none; }}
             </style>
-            <div style="overflow-x:auto; width:100%; max-height:600px; overflow-y:auto; border:1px solid #374151; border-radius:6px;">
+            <div style="overflow-x:auto; width:100%; max-height:800px; overflow-y:auto; border:1px solid #374151; border-radius:6px;">
               <table class="summary-table">
                 <thead><tr>{headers}</tr></thead>
                 <tbody>{rows}</tbody>
