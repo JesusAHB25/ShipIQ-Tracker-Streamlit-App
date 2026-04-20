@@ -20,7 +20,7 @@ GH_HEADERS    = {"Authorization": f"token {GITHUB_TOKEN}", "Accept": "applicatio
 
 DATE_COLS     = ["Pickup Date", "In Yard Goal Date", "Final Routing Expected By", "Review By Date"]
 STATUS_COLS   = ["Picked Up", "Past Pickup", "Small Package", "Awaiting Pickup",
-                 "Content Review Required", "Routing In Progress", "On Hold for routing", "Cancelled"]
+                 "Content Review Required", "Routing In Progress", "On Hold for Routing", "Cancelled"]
 SUMMARY_ORDER = ["PO #", "Vendor", "What is the PO for?", "Exp. Date"] + STATUS_COLS + [
                  "Max Past Pickup Days", "PO Status",
                  "Earliest Pickup Date", "Latest Pickup Date",
@@ -196,10 +196,6 @@ def get_datasets(rc_json):
         )
 
     paste_display = paste.assign(**{col: paste[col].dt.strftime("%m/%d/%Y") for col in DATE_COLS})
-
-    # TEMP DEBUG — remove after confirming status values
-    st.write("STATUS VALUES:", paste["Status"].unique().tolist())
-
     return summary[SUMMARY_ORDER], paste_display
 
 # =============================================================================
