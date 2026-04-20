@@ -153,12 +153,24 @@ def get_datasets(rc_json):
     summary["Vendor"] = summary["PO #"].map(vendor_map).fillna("NA")
 
     # --- Status Counts ---
+    # Map CSV status values to display column names
+    status_name_map = {
+        "Picked Up":                          "Picked Up",
+        "Past Pickup":                        "Past Pickup",
+        "Small Package":                      "Small Package",
+        "Carrier Accepted, Awaiting Pickup":  "Awaiting Pickup",
+        "Content Review Required":            "Content Review Required",
+        "Routing In Progress":                "Routing In Progress",
+        "On Hold for Routing":                "On Hold for Routing",
+        "Cancelled":                          "Cancelled",
+    }
+    paste_status = paste.copy()
+    paste_status["Status"] = paste_status["Status"].map(status_name_map)
     status_pivot = (
-        paste.groupby(["PO #", "Status"])["Status"]
+        paste_status.groupby(["PO #", "Status"])["Status"]
         .count()
         .unstack(fill_value=0)
         .reset_index()
-        .rename(columns={"Carrier Accepted, Awaiting Pickup": "Awaiting Pickup"})
     )
     vendor_map_backup = summary.set_index("PO #")["Vendor"]
     summary = summary.drop(columns=["Vendor"]).merge(status_pivot, on="PO #", how="left")
