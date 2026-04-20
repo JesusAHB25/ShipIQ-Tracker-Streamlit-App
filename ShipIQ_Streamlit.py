@@ -196,6 +196,10 @@ def get_datasets(rc_json):
         )
 
     paste_display = paste.assign(**{col: paste[col].dt.strftime("%m/%d/%Y") for col in DATE_COLS})
+
+    # TEMP DEBUG — remove after confirming status values
+    st.write("STATUS VALUES:", paste["Status"].unique().tolist())
+
     return summary[SUMMARY_ORDER], paste_display
 
 # =============================================================================
