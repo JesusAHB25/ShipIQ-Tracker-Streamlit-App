@@ -421,6 +421,9 @@ with tab2:
                     else ("background-color: #21c354; color: white" if x == "Picked Up" else "")
                 )
                 return styles
-            st.dataframe(deeper_dive.style.apply(style_deeper_dive, axis=None), use_container_width=True)
+            st.dataframe(
+                deeper_dive.reset_index(drop=True).style.apply(style_deeper_dive, axis=None),
+                use_container_width=True
+            )
     else:
         st.info("No data to display. Add PO numbers in Report Controls and ensure CSVs are in the Downloads folder.")
