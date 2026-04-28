@@ -414,6 +414,13 @@ with tab2:
         if deeper_dive.empty:
             st.warning(f"No records found for PO # {selected_po}.")
         else:
-            st.dataframe(deeper_dive, use_container_width=True)
+            def style_deeper_dive(df):
+                styles = pd.DataFrame("", index=df.index, columns=df.columns)
+                styles["Status"] = df["Status"].apply(
+                    lambda x: "background-color: #ff4b4b; color: white" if x == "Past Pickup"
+                    else ("background-color: #21c354; color: white" if x == "Picked Up" else "")
+                )
+                return styles
+            st.dataframe(deeper_dive.style.apply(style_deeper_dive, axis=None), use_container_width=True)
     else:
         st.info("No data to display. Add PO numbers in Report Controls and ensure CSVs are in the Downloads folder.")
