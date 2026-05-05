@@ -184,8 +184,9 @@ def get_datasets(rc_json):
     # --- Max Past Pickup Days ---
     past_pickup_df = paste[paste["Status"] == "Past Pickup"]
     min_pickup = past_pickup_df.groupby("PO #")["Pickup Date"].min()
-    summary["Max Past Pickup Days"] = summary["PO #"].map(min_pickup).apply(
-        lambda x: max(0, (pd.Timestamp.today().normalize() - x).days) if pd.notna(x) else 0
+    today = pd.Timestamp.today().normalize()
+    summary["Max Past Pickup Days"] = summary["PO #"].map(min_pickup.to_dict()).apply(
+        lambda x: max(0, (today - pd.Timestamp(x)).days) if pd.notna(x) else 0
     )
 
     # --- PO Status ---
@@ -265,6 +266,26 @@ with tab0:
             st.session_state.rc_sha = save_rc_to_github(EMPTY_RC.copy(), st.session_state.rc_sha)
             st.cache_data.clear()
             st.rerun()
+
+    # --- Delete individual PO ---
+    st.divider()
+    st.markdown("**🗑️ Delete a specific PO:**")
+    po_options = st.session_state.report_controls["PO # to Track"].dropna().astype(str).tolist()
+    if po_options:
+        col_sel, col_del = st.columns([3, 1])
+        with col_sel:
+            po_to_delete = st.selectbox("Select PO # to delete:", options=po_options, label_visibility="collapsed")
+        with col_del:
+            if st.button("🗑️ Delete PO", type="secondary", use_container_width=True):
+                updated = st.session_state.report_controls[
+                    st.session_state.report_controls["PO # to Track"].astype(str) != po_to_delete
+                ].reset_index(drop=True)
+                st.session_state.report_controls = updated
+                st.session_state.rc_sha = save_rc_to_github(updated, st.session_state.rc_sha)
+                st.cache_data.clear()
+                st.rerun()
+    else:
+        st.info("No POs to delete.")
 
     st.divider()
     st.subheader("📁 CSV File Manager")
